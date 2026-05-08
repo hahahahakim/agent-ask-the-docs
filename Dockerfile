@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 # Copy application code (chown to appuser so it can write data/ at runtime)
 COPY --chown=appuser:appuser . .
 
+# Ensure the data directory exists and is owned by appuser before the volume is mounted
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
+
 USER appuser
 
 EXPOSE 8000
