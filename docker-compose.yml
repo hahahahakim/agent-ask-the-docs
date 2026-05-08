@@ -9,6 +9,9 @@ services:
     volumes:
       - agent-data:/app/data
     restart: unless-stopped
+    networks:
+      - default
+      - nginx-proxy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -17,3 +20,7 @@ services:
 
 volumes:
   agent-data:
+
+networks:
+  nginx-proxy:
+    external: true
