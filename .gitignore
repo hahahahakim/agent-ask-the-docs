@@ -24,3 +24,6 @@ data/
 *.swp
 *.swo
 .DS_Store
+
+api-docs.html
+API-Specs.md
