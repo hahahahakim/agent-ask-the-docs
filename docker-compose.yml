@@ -1,7 +1,7 @@
 services:
   agent:
     build: .
-    container_name: agent-docs
+    container_name: agent-ask-the-docs
     ports:
       - "8000:8000"
     env_file:
