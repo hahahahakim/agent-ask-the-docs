@@ -19,6 +19,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, ToolMessage
 
 from api.config import settings
+from api.log import log_completed, log_request
 from api.models import ChatRequest, ChatResponse
 from api.security.auth import verify_api_key
 from api.security.rate_limit import limiter
@@ -49,7 +50,7 @@ async def chat(
 
     tracker.maybe_expire(body.thread_id, agent.checkpointer)
 
-    logger.info("chat request  thread_id=%s", body.thread_id)
+    log_request(logger, request, thread_id=body.thread_id)
     t0 = time.perf_counter()
     answer = await run_query(agent, body.query, _build_config(body.thread_id))
     if not answer:
@@ -57,7 +58,7 @@ async def chat(
 
     duration = time.perf_counter() - t0
     tracker.touch(body.thread_id)
-    logger.info("chat response thread_id=%s [%.2fs]", body.thread_id, duration)
+    log_completed(logger, body.thread_id, duration)
     return ChatResponse(answer=answer, thread_id=body.thread_id, model=settings.model_name, duration_s=round(duration, 2))
 
 
@@ -100,11 +101,15 @@ async def _token_generator(agent, query: str, config: dict, thread_id: str):
             yield f"data: {json.dumps({'token': final_ai_content})}\n\n"
 
         duration = time.perf_counter() - t0
-        logger.info("chat/stream response thread_id=%s [%.2fs]", thread_id, duration)
+        log_completed(logger, thread_id, duration)
         yield f"data: {json.dumps({'model': settings.model_name, 'duration_s': round(duration, 2)})}\n\n"
         yield "data: [DONE]\n\n"
     except Exception:
-        logger.exception("chat/stream error thread_id=%s [%.2fs]", thread_id, time.perf_counter() - t0)
+        duration = time.perf_counter() - t0
+        logger.exception("Stream error", extra={
+            "threadId": thread_id,
+            "duration": f"{duration:.2f}s",
+        })
         yield "event: error\n"
         yield f"data: {json.dumps({'message': 'Stream interrupted. Retry via POST /chat with the same query and thread_id.'})}\n\n"
 
@@ -137,7 +142,7 @@ async def chat_stream(
     tracker.maybe_expire(body.thread_id, agent.checkpointer)
     tracker.touch(body.thread_id)
 
-    logger.info("chat/stream request thread_id=%s", body.thread_id)
+    log_request(logger, request, thread_id=body.thread_id)
     return StreamingResponse(
         _token_generator(agent, body.query, _build_config(body.thread_id), body.thread_id),
         media_type="text/event-stream",

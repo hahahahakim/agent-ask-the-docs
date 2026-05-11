@@ -256,11 +256,16 @@ def _extract_text(content) -> str:
 
 
 _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>.*?(?:</tool_call>|$)", re.DOTALL)
+# Matches Python-style function calls the model may emit as plain text instead of
+# structured tool calls: fetch_pages_parallel(urls="...") or fetch_page(url="...")
+_TOOL_FN_CALL_RE = re.compile(r"\bfetch_(?:pages_parallel|page)\s*\([^)]*\)?", re.DOTALL)
 
 
 def _clean_text(text: str) -> str:
-    """Strip <tool_call> blocks from text.  Returns empty string if nothing remains."""
-    return _TOOL_CALL_BLOCK_RE.sub("", text).strip()
+    """Strip tool-call markup from text. Returns empty string if nothing remains."""
+    text = _TOOL_CALL_BLOCK_RE.sub("", text)
+    text = _TOOL_FN_CALL_RE.sub("", text)
+    return text.strip()
 
 
 async def _build_initial_input(query: str, pre_urls: list | None = None) -> dict:
@@ -386,9 +391,11 @@ async def run_query(agent, query: str, config: dict) -> str:
                     break
 
     if response_parts:
-        return "".join(response_parts)
+        cleaned = _clean_text("".join(response_parts))
+        if cleaned:
+            return cleaned
 
-    # Streaming produced nothing — use the final graph state instead
+    # Streaming produced nothing (or only tool-call text) — use the final graph state instead
     if final_ai_content:
         return final_ai_content
 

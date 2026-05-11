@@ -88,7 +88,7 @@ Always follow this order:
 | Storage CLI | https://docs.0g.ai/developer-hub/building-on-0g/storage/storage-cli |
 | Storage SDK | https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk |
 | Compute Network / Inference (developer docs) | https://docs.0g.ai/developer-hub/building-on-0g/compute-network/inference |
-| DA (Data Availability) | https://docs.0g.ai/developer-hub/building-on-0g/da |
+| DA (Data Availability) | https://docs.0g.ai/developer-hub/building-on-0g/da-integration |
 | Network Info (RPC endpoints, chain IDs, contract addresses) | https://docs.0g.ai/developer-hub/network-info |
 | Blog post index (sitemap) | https://0g.ai/sitemap.xml |
 | Storage overview | https://build.0g.ai/storage |

@@ -14,7 +14,6 @@ import asyncio
 import contextlib
 import io
 import logging
-import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -25,6 +24,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.config import settings
+from api.log import configure_logging
 from api.routers import chat, health
 from api.security.rate_limit import limiter, rate_limit_exceeded_handler
 
@@ -55,31 +55,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # Application lifespan — build the agent once at startup
 # ---------------------------------------------------------------------------
 
-def _configure_logging() -> None:
-    """Inject UTC timestamps into uvicorn's coloured handlers and the api logger."""
-    from uvicorn.logging import DefaultFormatter
-
-    fmt = DefaultFormatter(
-        fmt="%(asctime)s %(levelprefix)s %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%SZ",
-        use_colors=True,
-    )
-    fmt.converter = time.gmtime
-
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        for handler in logging.getLogger(name).handlers:
-            handler.setFormatter(fmt)
-
-    api_handler = logging.StreamHandler()
-    api_handler.setFormatter(fmt)
-    api_logger = logging.getLogger("api")
-    api_logger.setLevel(logging.INFO)
-    api_logger.addHandler(api_handler)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _configure_logging()
+    configure_logging()
 
     with contextlib.redirect_stderr(io.StringIO()):
         from agent import build_agent, warm_cache  # noqa: PLC0415
