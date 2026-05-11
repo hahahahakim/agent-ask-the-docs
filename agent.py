@@ -339,9 +339,10 @@ async def _build_initial_input(query: str, pre_urls: list | None = None) -> dict
 
 
 async def run_query(agent, query: str, config: dict) -> str:
-    response_parts = []
     final_ai_content = None   # fallback: last AI message from graph output
     _tool_start_times: dict = {}  # run_id → start time for cache detection
+    _turn_buf: list[str] = []     # tokens buffered for the current model invocation
+    _turn_has_tool_call = False   # True if the current invocation issued a tool call
 
     initial_input = await _build_initial_input(query)
 
@@ -367,14 +368,27 @@ async def run_query(agent, query: str, config: dict) -> str:
             _tool_start_times.pop(run_id, None)
             console.print(f"  [bold red]✗ {event['name']} failed:[/bold red] {event['data'].get('error', '')}")
 
+        elif kind == "on_chat_model_start":
+            _turn_buf.clear()
+            _turn_has_tool_call = False
+
         elif kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
-            # Skip tool-call chunks — only collect final text tokens
             if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                _turn_has_tool_call = True
+                _turn_buf.clear()
                 continue
-            text = _extract_text(chunk.content)
-            if text and "<tool_call>" not in text:
-                response_parts.append(text)
+            if not _turn_has_tool_call:
+                text = _extract_text(chunk.content)
+                if text and "<tool_call>" not in text:
+                    _turn_buf.append(text)
+
+        elif kind == "on_chat_model_end":
+            # Discard tool-calling turns; the buffer for the final answer turn
+            # is read after the loop ends.
+            if _turn_has_tool_call:
+                _turn_buf.clear()
+            _turn_has_tool_call = False
 
         elif kind == "on_chain_end" and event.get("name") == "LangGraph":
             # Keep the final graph output as a fallback in case streaming
@@ -390,12 +404,13 @@ async def run_query(agent, query: str, config: dict) -> str:
                     final_ai_content = text
                     break
 
-    if response_parts:
-        cleaned = _clean_text("".join(response_parts))
+    # _turn_buf holds tokens from the last non-tool-call invocation (the final answer)
+    if _turn_buf:
+        cleaned = _clean_text("".join(_turn_buf))
         if cleaned:
             return cleaned
 
-    # Streaming produced nothing (or only tool-call text) — use the final graph state instead
+    # Streaming produced nothing — use the final graph state instead
     if final_ai_content:
         return final_ai_content
 
@@ -432,6 +447,8 @@ async def cli_stream_response(agent, query: str, config: dict) -> None:
     answer_started = False
     final_ai_content = None
     _tool_start_times: dict = {}
+    _turn_buf: list[str] = []
+    _turn_has_tool_call = False
     live: Live | None = None
 
     status = console.status("[dim]Thinking...[/dim]", spinner="dots")
@@ -473,17 +490,24 @@ async def cli_stream_response(agent, query: str, config: dict) -> None:
                 _tool_start_times.pop(run_id, None)
                 status.update("[dim]Thinking...[/dim]")
 
+            elif kind == "on_chat_model_start":
+                _turn_buf.clear()
+                _turn_has_tool_call = False
+
             elif kind == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
                 if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    _turn_has_tool_call = True
+                    _turn_buf.clear()
                     continue
-                text = _extract_text(chunk.content)
-                if text:
-                    # Skip <tool_call> text-format blocks — agent_node converts
-                    # them to structured tool_calls so they must not be displayed
-                    # as answer content.
-                    if "<tool_call>" in text:
-                        continue
+                if not _turn_has_tool_call:
+                    text = _extract_text(chunk.content)
+                    if text and "<tool_call>" not in text:
+                        _turn_buf.append(text)
+
+            elif kind == "on_chat_model_end":
+                # Flush buffered tokens only for turns that didn't issue tool calls
+                if not _turn_has_tool_call and _turn_buf:
                     if not answer_started:
                         answer_started = True
                         status.stop()
@@ -495,8 +519,11 @@ async def cli_stream_response(agent, query: str, config: dict) -> None:
                             transient=False,
                         )
                         live.start()
-                    response_parts.append(text)
-                    live.update(Markdown("".join(response_parts)))
+                    response_parts.extend(_turn_buf)
+                    if live:
+                        live.update(Markdown("".join(response_parts)))
+                _turn_buf.clear()
+                _turn_has_tool_call = False
 
             elif kind == "on_chain_end" and event.get("name") == "LangGraph":
                 output = event.get("data", {}).get("output") or {}

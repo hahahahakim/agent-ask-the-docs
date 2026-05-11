@@ -70,22 +70,45 @@ async def _token_generator(agent, query: str, config: dict, thread_id: str):
       data: [DONE]             — stream finished successfully
       event: error             — stream failed; client should retry via POST /chat
       data: {"message": "..."}
+
+    Tokens are buffered per model invocation and flushed only when the
+    invocation ends without issuing any tool calls.  This prevents pre-tool-call
+    reasoning text ("Let me search…") and text-format tool invocations from
+    leaking into the response.
     """
     t0 = time.perf_counter()
     try:
         initial_input = await _build_initial_input(query)
         had_tokens = False
         final_ai_content = None
+        _turn_buf: list[str] = []
+        _turn_has_tool_call = False
 
         async for event in agent.astream_events(initial_input, config=config, version="v2"):
-            if event["event"] == "on_chat_model_stream":
+            if event["event"] == "on_chat_model_start":
+                _turn_buf.clear()
+                _turn_has_tool_call = False
+
+            elif event["event"] == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
                 if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                    _turn_has_tool_call = True
+                    _turn_buf.clear()
                     continue
-                text = _extract_text(chunk.content)
-                if text and "<tool_call>" not in text:
-                    had_tokens = True
-                    yield f"data: {json.dumps({'token': text})}\n\n"
+                if not _turn_has_tool_call:
+                    text = _extract_text(chunk.content)
+                    if text and "<tool_call>" not in text:
+                        _turn_buf.append(text)
+
+            elif event["event"] == "on_chat_model_end":
+                # Flush buffered tokens only for turns that didn't issue tool calls
+                if not _turn_has_tool_call:
+                    for token in _turn_buf:
+                        had_tokens = True
+                        yield f"data: {json.dumps({'token': token})}\n\n"
+                _turn_buf.clear()
+                _turn_has_tool_call = False
+
             elif event["event"] == "on_chain_end" and event.get("name") == "LangGraph":
                 output = event.get("data", {}).get("output") or {}
                 for msg in reversed(output.get("messages", [])):
