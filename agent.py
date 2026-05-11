@@ -55,7 +55,7 @@ _ROUTE_MAP: list = [
     (
         [
             "storage sdk", "storage cli", "upload", "download", "0g storage", "zgs",
-            "blob", "file storage", "turbo", "storage endpoint", "storage node",
+            "file storage", "turbo", "storage endpoint", "storage node",
             "indexer", "flow contract",
         ],
         [
@@ -66,7 +66,7 @@ _ROUTE_MAP: list = [
     ),
     # Data Availability
     (
-        ["data availability", " da ", "da node", "0g da", "blob submission"],
+        ["data availability", " da ", "da node", "0g da", "blob submission", "submit blob", "blob to da", "submit a blob", "da blob", "da integration"],
         [
             "https://docs.0g.ai/developer-hub/building-on-0g/da-integration",
         ],
