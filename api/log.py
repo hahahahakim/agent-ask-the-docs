@@ -70,7 +70,13 @@ def configure_logging() -> None:
     api_logger.addHandler(handler)
 
 
-def log_request(logger: logging.Logger, request: Request, *, thread_id: str | None = None) -> None:
+def log_request(
+    logger: logging.Logger,
+    request: Request,
+    *,
+    thread_id: str | None = None,
+    level: int = logging.INFO,
+) -> None:
     """Log an incoming request (method, path, ip, optional threadId)."""
     extra: dict = {
         "method": request.method,
@@ -79,7 +85,7 @@ def log_request(logger: logging.Logger, request: Request, *, thread_id: str | No
     }
     if thread_id is not None:
         extra["threadId"] = thread_id
-    logger.info("Incoming request", extra=extra)
+    logger.log(level, "Incoming request", extra=extra)
 
 
 def log_completed(logger: logging.Logger, thread_id: str, duration: float) -> None:
