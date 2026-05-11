@@ -41,6 +41,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = "default-src 'none'"
+        response.headers["Cache-Control"] = "no-store"
         # HSTS — only meaningful when TLS is terminated at this process or a
         # reverse proxy that forwards the header; safe to include always.
         response.headers["Strict-Transport-Security"] = (
