@@ -97,8 +97,13 @@ async def _token_generator(agent, query: str, config: dict, thread_id: str):
                     continue
                 if not _turn_has_tool_call:
                     text = _extract_text(chunk.content)
-                    if text and "<tool_call>" not in text:
-                        _turn_buf.append(text)
+                    if text:
+                        if "<tool_call>" in text:
+                            # Text-format tool call (GLM/Qwen style) — discard buffer
+                            _turn_has_tool_call = True
+                            _turn_buf.clear()
+                        else:
+                            _turn_buf.append(text)
 
             elif event["event"] == "on_chat_model_end":
                 # Flush buffered tokens only for turns that didn't issue tool calls

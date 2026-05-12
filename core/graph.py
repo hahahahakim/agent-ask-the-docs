@@ -57,6 +57,46 @@ _TOOL_CALL_TAG_RE = re.compile(
 _PY_CALL_RE = re.compile(r"^(\w+)\((.*)\)\s*$", re.DOTALL)
 # key=value pair (value may or may not be quoted)
 _KV_RE = re.compile(r'(\w+)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^,\)]+))')
+# Untagged tool calls the model may emit without <tool_call> wrappers.
+# Flexible enough to catch all observed variants regardless of underscores:
+#   fetch_pages_parallel, pages_parallel, pagesparallel, fetchpagesparallel,
+#   fetch_page, fetchpage, page
+_UNTAGGED_TOOL_RE = re.compile(
+    r'\b((?:fetch_?)?(?:pages?_?parallel|page))\s*\(([^)]*)\)',
+    re.DOTALL,
+)
+
+
+def _normalize_tool_name(raw: str) -> str:
+    """Map any variant of the tool name to its canonical form."""
+    s = raw.lower().replace("_", "")
+    if "parallel" in s:
+        return "fetch_pages_parallel"
+    return "fetch_page"
+
+
+def _parse_untagged_tool_calls(content: str) -> list:
+    """Extract tool calls from plain Python-style calls with no <tool_call> wrapper.
+
+    Some model responses emit e.g. ``pagesparallel(urls="...")`` as raw text
+    without any tags.  Without this parser, agent_node returns the raw text as
+    the final answer instead of executing the tool.
+    """
+    calls = []
+    for match in _UNTAGGED_TOOL_RE.finditer(content):
+        func_name = _normalize_tool_name(match.group(1))
+        args: dict = {}
+        for kv in _KV_RE.finditer(match.group(2)):
+            key = kv.group(1)
+            val = kv.group(2) or kv.group(3) or (kv.group(4) or "").strip()
+            args[key] = val
+        if args:
+            calls.append({
+                "id": f"tc_{uuid.uuid4().hex[:8]}",
+                "name": func_name,
+                "args": args,
+            })
+    return calls
 
 
 def _parse_text_tool_calls(content: str) -> list:
@@ -180,13 +220,17 @@ def build_graph(llm, tools: list, system_prompt: str, checkpointer, debug: bool 
         messages = [SystemMessage(content=system_prompt)] + _trim_history(state)
         response = await llm_with_tools.ainvoke(messages)
 
+        content = response.content if isinstance(response.content, str) else ""
+
         # Convert text-format <tool_call> blocks to structured tool calls
-        if (
-            isinstance(response.content, str)
-            and "<tool_call>" in response.content
-            and not response.tool_calls
-        ):
-            parsed = _parse_text_tool_calls(response.content)
+        if content and "<tool_call>" in content and not response.tool_calls:
+            parsed = _parse_text_tool_calls(content)
+            if parsed:
+                response = AIMessage(content="", tool_calls=parsed)
+
+        # Also handle untagged Python-style calls (model forgot the <tool_call> wrapper)
+        elif content and not response.tool_calls:
+            parsed = _parse_untagged_tool_calls(content)
             if parsed:
                 response = AIMessage(content="", tool_calls=parsed)
 

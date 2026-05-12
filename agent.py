@@ -257,8 +257,12 @@ def _extract_text(content) -> str:
 
 _TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>.*?(?:</tool_call>|$)", re.DOTALL)
 # Matches Python-style function calls the model may emit as plain text instead of
-# structured tool calls: fetch_pages_parallel(urls="...") or fetch_page(url="...")
-_TOOL_FN_CALL_RE = re.compile(r"\bfetch_(?:pages_parallel|page)\s*\([^)]*\)?", re.DOTALL)
+# structured tool calls. Covers tagged variants handled by graph.py and untagged
+# variants that leak through (e.g. pagesparallel(...) without <tool_call> wrappers).
+_TOOL_FN_CALL_RE = re.compile(
+    r"\b(?:fetch_?)?(?:pages?_?parallel|page)\s*\([^)]*\)?",
+    re.DOTALL,
+)
 
 
 def _clean_text(text: str) -> str:
@@ -375,13 +379,19 @@ async def run_query(agent, query: str, config: dict) -> str:
         elif kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
             if hasattr(chunk, "tool_call_chunks") and chunk.tool_call_chunks:
+                # Structured tool call (OpenAI-style)
                 _turn_has_tool_call = True
                 _turn_buf.clear()
                 continue
             if not _turn_has_tool_call:
                 text = _extract_text(chunk.content)
-                if text and "<tool_call>" not in text:
-                    _turn_buf.append(text)
+                if text:
+                    if "<tool_call>" in text:
+                        # Text-format tool call (GLM/Qwen style) — discard buffer
+                        _turn_has_tool_call = True
+                        _turn_buf.clear()
+                    else:
+                        _turn_buf.append(text)
 
         elif kind == "on_chat_model_end":
             # Discard tool-calling turns; the buffer for the final answer turn
@@ -502,8 +512,12 @@ async def cli_stream_response(agent, query: str, config: dict) -> None:
                     continue
                 if not _turn_has_tool_call:
                     text = _extract_text(chunk.content)
-                    if text and "<tool_call>" not in text:
-                        _turn_buf.append(text)
+                    if text:
+                        if "<tool_call>" in text:
+                            _turn_has_tool_call = True
+                            _turn_buf.clear()
+                        else:
+                            _turn_buf.append(text)
 
             elif kind == "on_chat_model_end":
                 # Flush buffered tokens only for turns that didn't issue tool calls
