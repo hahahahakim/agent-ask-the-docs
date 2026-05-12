@@ -214,6 +214,26 @@ async def query_index(query: str, n_results: int = 6) -> tuple:
     return (formatted_context, min_distance)
 
 
+def clear_index() -> str:
+    """Drop and recreate the ChromaDB collection, removing all indexed chunks.
+
+    Synchronous. Used by the API recache handler to wipe the entire RAG index.
+    Returns a human-readable confirmation string.
+    """
+    global _client, _collection
+    if _client is None:
+        get_collection()  # ensure initialised
+    if _client is not None:
+        _client.delete_collection("0g_docs")
+        _collection = _client.get_or_create_collection(
+            name="0g_docs",
+            metadata={"hnsw:space": "cosine"},
+            embedding_function=_get_embedding_function(),
+        )
+        return "RAG index cleared."
+    return "RAG index not initialised — nothing to clear."
+
+
 def drop_url_chunks(url: str) -> None:
     """Delete all indexed chunks for the given URL.
 

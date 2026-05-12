@@ -342,6 +342,26 @@ async def _build_initial_input(query: str, pre_urls: list | None = None) -> dict
     }
 
 
+async def invalidate_cache() -> str:
+    """Clear both the SQLite page cache and the RAG vector index.
+
+    Called by the API when a request arrives with query == "recache".
+    Returns a human-readable summary of what was cleared.
+    """
+    messages = []
+
+    if _clear_page_cache is not None:
+        messages.append(_clear_page_cache(None))   # None → wipe entire cache
+
+    try:
+        from core.rag import clear_index  # noqa: PLC0415
+        messages.append(await asyncio.to_thread(clear_index))
+    except Exception:
+        pass
+
+    return " ".join(messages) if messages else "Cache cleared."
+
+
 async def run_query(agent, query: str, config: dict) -> str:
     final_ai_content = None   # fallback: last AI message from graph output
     _tool_start_times: dict = {}  # run_id → start time for cache detection

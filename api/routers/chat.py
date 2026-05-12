@@ -25,7 +25,7 @@ from api.security.auth import verify_api_key
 from api.security.rate_limit import limiter
 
 # agent.py lives at the project root; importable when uvicorn is started from there.
-from agent import RECURSION_LIMIT, _build_initial_input, _clean_text, _extract_text, run_query
+from agent import RECURSION_LIMIT, _build_initial_input, _clean_text, _extract_text, invalidate_cache, run_query
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -45,6 +45,14 @@ async def chat(
     _: str = Depends(verify_api_key),
 ) -> ChatResponse:
     """Send a query and receive a complete answer."""
+    if body.query.lower() == "recache":
+        t0 = time.perf_counter()
+        message = await invalidate_cache()
+        duration = time.perf_counter() - t0
+        log_request(logger, request, thread_id=body.thread_id)
+        logger.info("Cache invalidated via API")
+        return ChatResponse(answer=message, thread_id=body.thread_id, model=settings.model_name, duration_s=round(duration, 2))
+
     agent = request.app.state.agent
     tracker = request.app.state.thread_tracker
 
