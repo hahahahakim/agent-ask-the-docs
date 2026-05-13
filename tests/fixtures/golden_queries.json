@@ -1,0 +1,135 @@
+[
+  {
+    "id": "storage-sdk-upload",
+    "query": "How do I upload a file to 0G Storage using the SDK?",
+    "topic": "storage",
+    "expected_url_patterns": ["storage"],
+    "expected_answer_keywords": ["upload", "indexer", "sdk"]
+  },
+  {
+    "id": "storage-cli-download",
+    "query": "What is the storage CLI command to download a file?",
+    "topic": "storage",
+    "expected_url_patterns": ["storage"],
+    "expected_answer_keywords": ["download", "cli", "storage"]
+  },
+  {
+    "id": "da-blob-submit",
+    "query": "How do I submit a blob to 0G DA?",
+    "topic": "da",
+    "expected_url_patterns": ["da-integration"],
+    "expected_answer_keywords": ["blob", "da", "submit"]
+  },
+  {
+    "id": "da-blob-submission-process",
+    "query": "What is the process for blob submission to the data availability layer?",
+    "topic": "da",
+    "expected_url_patterns": ["da-integration"],
+    "expected_answer_keywords": ["blob", "data availability", "da"]
+  },
+  {
+    "id": "da-integration-general",
+    "query": "How do I integrate with 0G data availability?",
+    "topic": "da",
+    "expected_url_patterns": ["da-integration"],
+    "expected_answer_keywords": ["da", "data availability", "integration"]
+  },
+  {
+    "id": "compute-models-mainnet",
+    "query": "What AI models are available on 0G mainnet?",
+    "topic": "compute",
+    "expected_url_patterns": ["compute", "playground"],
+    "expected_answer_keywords": ["model", "inference", "mainnet"]
+  },
+  {
+    "id": "compute-inference-endpoint",
+    "query": "What is the inference API endpoint for 0G Compute Network?",
+    "topic": "compute",
+    "expected_url_patterns": ["compute", "inference"],
+    "expected_answer_keywords": ["endpoint", "api", "inference"]
+  },
+  {
+    "id": "overview-what-is-0g",
+    "query": "What is 0G and how does it work?",
+    "topic": "overview",
+    "expected_url_patterns": ["ai-context"],
+    "expected_answer_keywords": ["0g", "decentralized", "ai"]
+  },
+  {
+    "id": "overview-ai-infrastructure",
+    "query": "What is 0G's AI infrastructure?",
+    "topic": "overview",
+    "expected_url_patterns": ["ai-context"],
+    "expected_answer_keywords": ["infrastructure", "ai", "network"]
+  },
+  {
+    "id": "pc-verifiable-inference",
+    "query": "What is verifiable inference on 0G?",
+    "topic": "private-computer",
+    "expected_url_patterns": ["pc.0g"],
+    "expected_answer_keywords": ["verifiable", "inference", "private"]
+  },
+  {
+    "id": "pc-how-to-use",
+    "query": "How do I use 0G Private Computer?",
+    "topic": "private-computer",
+    "expected_url_patterns": ["pc.0g"],
+    "expected_answer_keywords": ["private computer", "pc", "0g"]
+  },
+  {
+    "id": "network-chain-id-rpc",
+    "query": "What is the 0G chain ID and RPC URL?",
+    "topic": "network",
+    "expected_url_patterns": ["network-info"],
+    "expected_answer_keywords": ["chain id", "rpc", "network"]
+  },
+  {
+    "id": "network-endpoints",
+    "query": "What are the 0G network endpoints?",
+    "topic": "network",
+    "expected_url_patterns": ["network-info"],
+    "expected_answer_keywords": ["endpoint", "rpc", "network"]
+  },
+  {
+    "id": "staking-delegate-tokens",
+    "query": "How do I delegate tokens on 0G?",
+    "topic": "staking",
+    "expected_url_patterns": ["staking", "app.0g"],
+    "expected_answer_keywords": ["delegate", "staking", "token"]
+  },
+  {
+    "id": "staking-validator-node",
+    "query": "How do I run a validator node on 0G?",
+    "topic": "staking",
+    "expected_url_patterns": ["staking", "chain"],
+    "expected_answer_keywords": ["validator", "node", "stake"]
+  },
+  {
+    "id": "blog-announcements",
+    "query": "What are the latest 0G announcements?",
+    "topic": "blog",
+    "expected_url_patterns": ["sitemap", "blog"],
+    "expected_answer_keywords": ["0g", "announcement"]
+  },
+  {
+    "id": "compound-storage-and-inference",
+    "query": "How do I upload to 0G Storage and what inference models are available?",
+    "topic": "compound",
+    "expected_url_patterns": ["storage", "compute"],
+    "expected_answer_keywords": ["upload", "storage", "model", "inference"]
+  },
+  {
+    "id": "compound-da-vs-storage",
+    "query": "What is 0G DA and how is it different from 0G Storage?",
+    "topic": "compound",
+    "expected_url_patterns": ["da-integration", "storage"],
+    "expected_answer_keywords": ["da", "data availability", "storage"]
+  },
+  {
+    "id": "compound-rpc-and-contracts",
+    "query": "What are the RPC endpoints and how do I deploy a smart contract on 0G?",
+    "topic": "compound",
+    "expected_url_patterns": ["network-info", "chain"],
+    "expected_answer_keywords": ["rpc", "contract", "deploy", "endpoint"]
+  }
+]

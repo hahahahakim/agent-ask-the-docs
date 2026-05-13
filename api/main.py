@@ -15,6 +15,7 @@ import contextlib
 import io
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,6 +53,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 # ---------------------------------------------------------------------------
+# Periodic cache watch — re-run warm_cache every N hours to detect doc changes
+# ---------------------------------------------------------------------------
+
+async def _periodic_cache_watch() -> None:
+    """Re-run warm_cache daily at midnight GMT+8 (16:00 UTC) to detect doc changes."""
+    _UTC_HOUR = 16  # midnight GMT+8 = 16:00 UTC
+    while True:
+        now = datetime.now(timezone.utc)
+        next_run = now.replace(hour=_UTC_HOUR, minute=0, second=0, microsecond=0)
+        if next_run <= now:
+            next_run += timedelta(days=1)
+        await asyncio.sleep((next_run - now).total_seconds())
+        logging.getLogger("api").info("Scheduled cache watch started", extra={"trigger": "daily", "utc_hour": _UTC_HOUR})
+        try:
+            from agent import warm_cache  # noqa: PLC0415
+            await warm_cache()
+        except Exception:
+            logging.getLogger("api").exception("Periodic cache watch failed")
+
+
+# ---------------------------------------------------------------------------
 # Application lifespan — build the agent once at startup
 # ---------------------------------------------------------------------------
 
@@ -63,12 +85,14 @@ async def lifespan(app: FastAPI):
         from agent import build_agent, warm_cache  # noqa: PLC0415
         from core.persistence import get_thread_tracker
 
+    logging.getLogger("api").info("Agent starting", extra={"model": settings.model_name})
     app.state.agent = build_agent(verbose=settings.verbose)
     app.state.thread_tracker = get_thread_tracker(ttl_hours=settings.thread_ttl_hours)
 
     # Pre-fetch known URLs into the page cache in the background so the first
     # query hits cache instead of making live HTTP requests.
     asyncio.create_task(warm_cache())
+    asyncio.create_task(_periodic_cache_watch())
     yield
     # MemorySaver and ThreadTracker are in-process; nothing to clean up on shutdown
 

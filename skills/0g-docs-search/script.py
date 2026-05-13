@@ -14,7 +14,9 @@ configurable TTL (default 24 hours). Use clear_page_cache() to invalidate.
 """
 
 import asyncio
+import hashlib
 import json
+import logging
 import os
 import sqlite3
 import time
@@ -77,31 +79,72 @@ _WARM_URLS: list = sorted(INDEXABLE_URLS) + [
 async def warm_cache() -> None:
     """Pre-fetch all known URLs into the SQLite cache and update the RAG index.
 
+    Uses content hash comparison to detect changed pages and re-index only
+    those that have changed since the last run. On the first run (empty cache),
+    all URLs are treated as changed and fully indexed.
+
     Runs as a background task at startup. Errors are silently ignored —
     a failed warm-up is not critical; the agent will fetch live on demand.
     """
+    async def _fetch_live(client: httpx.AsyncClient, url: str):
+        """Fetch *url* live (bypassing cache) and return (url, content)."""
+        if not _is_allowed_url(url):
+            return url, (
+                f"### Blocked: {url}\n"
+                f"Error: URL is not on an approved 0G domain. "
+                f"Only 0g.ai and its subdomains are permitted."
+            )
+        try:
+            r = await client.get(url, timeout=_TIMEOUT, follow_redirects=True)
+            r.raise_for_status()
+            content = _parse(url, r.text)
+            return url, content
+        except httpx.TimeoutException:
+            return url, f"### Fetch failed: {url}\nError: request timed out after {_TIMEOUT}s"
+        except httpx.HTTPStatusError as e:
+            return url, f"### Fetch failed: {url}\nError: HTTP {e.response.status_code}"
+        except Exception as e:
+            return url, f"### Fetch failed: {url}\nError: {e}"
+
     async with httpx.AsyncClient(headers=_HEADERS) as client:
         results = await asyncio.gather(
-            *[_fetch_one(client, url) for url in _WARM_URLS],
+            *[_fetch_live(client, url) for url in _WARM_URLS],
             return_exceptions=True,
         )
 
-    # Build a map of successfully fetched pages for RAG indexing.
-    # return_exceptions=True means failed coroutines return an Exception object.
-    content_map = {}
+    changed: list = []
+    unchanged: list = []
+    content_map: dict = {}
+
     for result in results:
         if isinstance(result, Exception):
             continue
         url, content = result
-        if content and not content.startswith(("### Fetch failed", "### Blocked")):
+        if not content or content.startswith(("### Fetch failed", "### Blocked")):
+            continue
+
+        fresh_hash = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
+        stored_hash = await asyncio.to_thread(_cache_get_hash, url)
+
+        if stored_hash is not None and stored_hash == fresh_hash:
+            unchanged.append(url)
+        else:
+            # New or changed — update cache and mark for re-indexing
+            await asyncio.to_thread(_cache_set, url, content)
+            changed.append(url)
             content_map[url] = content
 
     if content_map:
         try:
             from core.rag import index_urls  # noqa: PLC0415
-            await asyncio.to_thread(index_urls, list(content_map.keys()), content_map)
+            await asyncio.to_thread(index_urls, changed, content_map)
         except Exception as e:
-            print(f"[warm_cache] RAG indexing failed: {e}")
+            logging.getLogger("api").error("warm_cache: RAG indexing failed", extra={"error": str(e)})
+
+    logging.getLogger("api").info(
+        "warm_cache complete",
+        extra={"unchanged": len(unchanged), "updated": len(changed)},
+    )
 
 # ---------------------------------------------------------------------------
 # Cache configuration
@@ -130,13 +173,19 @@ def _init_cache() -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS page_cache (
-                url        TEXT PRIMARY KEY,
-                content    TEXT NOT NULL,
-                cached_at  REAL NOT NULL
+                url          TEXT PRIMARY KEY,
+                content      TEXT NOT NULL,
+                cached_at    REAL NOT NULL,
+                content_hash TEXT
             )
             """
         )
         conn.commit()
+        try:
+            conn.execute("ALTER TABLE page_cache ADD COLUMN content_hash TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         conn.execute(
             "DELETE FROM page_cache WHERE length(content) > ?",
             (_MAX_CHARS + 500,),
@@ -168,20 +217,38 @@ def _cache_get(url: str) -> Optional[str]:
         conn.close()
 
 
+def _cache_get_hash(url: str) -> Optional[str]:
+    """Return the stored content_hash for *url*, or None if not cached or hash is NULL."""
+    _init_cache()
+    conn = sqlite3.connect(_CACHE_DB_PATH, check_same_thread=False, timeout=5)
+    try:
+        cursor = conn.execute(
+            "SELECT content_hash FROM page_cache WHERE url = ?", (url,)
+        )
+        row = cursor.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return row[0]
+    finally:
+        conn.close()
+
+
 def _cache_set(url: str, content: str) -> None:
     """Upsert *url* → *content* into the cache with the current timestamp."""
     _init_cache()
+    content_hash = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
     conn = sqlite3.connect(_CACHE_DB_PATH, check_same_thread=False, timeout=5)
     try:
         conn.execute(
             """
-            INSERT INTO page_cache (url, content, cached_at)
-            VALUES (?, ?, ?)
+            INSERT INTO page_cache (url, content, cached_at, content_hash)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
-                content   = excluded.content,
-                cached_at = excluded.cached_at
+                content      = excluded.content,
+                cached_at    = excluded.cached_at,
+                content_hash = excluded.content_hash
             """,
-            (url, content, time.time()),
+            (url, content, time.time(), content_hash),
         )
         conn.commit()
     finally:

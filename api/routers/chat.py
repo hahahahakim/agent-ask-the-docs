@@ -46,11 +46,12 @@ async def chat(
 ) -> ChatResponse:
     """Send a query and receive a complete answer."""
     if body.query.lower() == "recache":
+        log_request(logger, request, thread_id=body.thread_id)
+        logger.info("Cache invalidation started", extra={"trigger": "api"})
         t0 = time.perf_counter()
         message = await invalidate_cache()
         duration = time.perf_counter() - t0
-        log_request(logger, request, thread_id=body.thread_id)
-        logger.info("Cache invalidated via API")
+        logger.info("Cache invalidation complete", extra={"trigger": "api", "duration": f"{duration:.2f}s"})
         return ChatResponse(answer=message, thread_id=body.thread_id, model=settings.model_name, duration_s=round(duration, 2))
 
     agent = request.app.state.agent
@@ -91,11 +92,13 @@ async def _token_generator(agent, query: str, config: dict, thread_id: str):
         final_ai_content = None
         _turn_buf: list[str] = []
         _turn_has_tool_call = False
+        _turn_in_think = False  # True while inside a <think>...</think> block
 
         async for event in agent.astream_events(initial_input, config=config, version="v2"):
             if event["event"] == "on_chat_model_start":
                 _turn_buf.clear()
                 _turn_has_tool_call = False
+                _turn_in_think = False
 
             elif event["event"] == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
@@ -107,20 +110,42 @@ async def _token_generator(agent, query: str, config: dict, thread_id: str):
                     text = _extract_text(chunk.content)
                     if text:
                         if "<tool_call>" in text:
-                            # Text-format tool call (GLM/Qwen style) — discard buffer
                             _turn_has_tool_call = True
                             _turn_buf.clear()
+                        elif _turn_in_think:
+                            # Inside a think block — discard until closing tag
+                            if "</think>" in text:
+                                _turn_in_think = False
+                                after = text[text.index("</think>") + len("</think>"):]
+                                if after.strip():
+                                    _turn_buf.append(after)
+                        elif "<think>" in text:
+                            # Entering a think block — keep any content before it
+                            before = text[:text.index("<think>")]
+                            if before.strip():
+                                _turn_buf.append(before)
+                            _turn_in_think = True
+                            # Handle <think>...</think> in a single token
+                            rest = text[text.index("<think>"):]
+                            if "</think>" in rest:
+                                _turn_in_think = False
+                                after = rest[rest.index("</think>") + len("</think>"):]
+                                if after.strip():
+                                    _turn_buf.append(after)
                         else:
                             _turn_buf.append(text)
 
             elif event["event"] == "on_chat_model_end":
-                # Flush buffered tokens only for turns that didn't issue tool calls
+                # Flush buffered tokens only for turns that didn't issue tool calls.
+                # Apply _clean_text as a final safety net for any think remnants.
                 if not _turn_has_tool_call:
-                    for token in _turn_buf:
+                    cleaned = _clean_text("".join(_turn_buf))
+                    if cleaned:
                         had_tokens = True
-                        yield f"data: {json.dumps({'token': token})}\n\n"
+                        yield f"data: {json.dumps({'token': cleaned})}\n\n"
                 _turn_buf.clear()
                 _turn_has_tool_call = False
+                _turn_in_think = False
 
             elif event["event"] == "on_chain_end" and event.get("name") == "LangGraph":
                 output = event.get("data", {}).get("output") or {}

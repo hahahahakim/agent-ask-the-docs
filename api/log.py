@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime, timezone
+from typing import FrozenSet, Optional
 
 from fastapi import Request
 
@@ -19,7 +20,7 @@ class StructuredFormatter(logging.Formatter):
     _RESET = "\033[0m"
 
     # All attributes present on every LogRecord — never treat these as extras.
-    _STANDARD_ATTRS: frozenset[str] = frozenset({
+    _STANDARD_ATTRS: FrozenSet[str] = frozenset({
         "args", "asctime", "color_message", "created", "exc_info", "exc_text",
         "filename", "funcName", "levelname", "levelno", "lineno", "message",
         "module", "msecs", "msg", "name", "pathname", "process", "processName",
@@ -74,7 +75,7 @@ def log_request(
     logger: logging.Logger,
     request: Request,
     *,
-    thread_id: str | None = None,
+    thread_id: Optional[str] = None,
     level: int = logging.INFO,
 ) -> None:
     """Log an incoming request (method, path, ip, optional threadId)."""

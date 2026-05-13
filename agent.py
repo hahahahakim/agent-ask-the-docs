@@ -45,9 +45,7 @@ _warm_cache_fn = None     # set by build_agent() at startup
 _prefetch_fn = None       # set by build_agent() at startup
 
 # ---------------------------------------------------------------------------
-# Keyword router — maps query terms to likely documentation URLs.
-# Matched URLs are pre-fetched BEFORE the agent runs so the first LLM call
-# is the synthesis call, not a planning call.  Add entries as new topics emerge.
+# Legacy keyword router — kept for reference. Replaced by core/router.py
 # ---------------------------------------------------------------------------
 
 _ROUTE_MAP: list = [
@@ -133,16 +131,17 @@ _ROUTE_MAP: list = [
 
 
 def _route_query(query: str) -> list:
-    """Return deduplicated URLs likely relevant to *query* based on keywords."""
-    # Pad with spaces so short terms like " da " don't match "data"
-    q = f" {query.lower()} "
-    urls: list = []
-    for keywords, candidate_urls in _ROUTE_MAP:
-        if any(kw in q for kw in keywords):
-            for u in candidate_urls:
-                if u not in urls:
-                    urls.append(u)
-    return urls
+    """Return deduplicated URLs likely relevant to *query*.
+
+    Delegates to the semantic router in core/router.py which uses embedding
+    cosine similarity against natural-language topic descriptions.
+    Falls back to an empty list if the router is unavailable.
+    """
+    try:
+        from core.router import route_query  # noqa: PLC0415
+        return route_query(query)
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -263,10 +262,17 @@ _TOOL_FN_CALL_RE = re.compile(
     r"\b(?:fetch_?)?(?:pages?_?parallel|page)\s*\([^)]*\)?",
     re.DOTALL,
 )
+# Matches complete <think>...</think> blocks (reasoning models like DeepSeek/Qwen).
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+# Matches orphaned reasoning text that ends with </think> but has no opening tag —
+# happens when the opening <think> was consumed by a prior filter pass.
+_ORPHAN_THINK_RE = re.compile(r"^.*?</think>\s*", re.DOTALL)
 
 
 def _clean_text(text: str) -> str:
-    """Strip tool-call markup from text. Returns empty string if nothing remains."""
+    """Strip tool-call and think-block markup. Returns empty string if nothing remains."""
+    text = _THINK_BLOCK_RE.sub("", text)
+    text = _ORPHAN_THINK_RE.sub("", text)
     text = _TOOL_CALL_BLOCK_RE.sub("", text)
     text = _TOOL_FN_CALL_RE.sub("", text)
     return text.strip()
@@ -282,8 +288,64 @@ async def _build_initial_input(query: str, pre_urls: list | None = None) -> dict
 
     *pre_urls* may be supplied by the caller to avoid a second _route_query call.
     Always resets tool_calls_made so the counter never bleeds across turns.
+
+    When *pre_urls* is None, a decomposition step runs first: compound multi-topic
+    queries are split into atomic sub-queries, each routed and fetched independently,
+    and their context is merged before synthesis.
     """
     if pre_urls is None:
+        # Decompose compound queries into atomic sub-queries
+        try:
+            from core.decomposer import decompose  # noqa: PLC0415
+            sub_queries = decompose(query)
+        except Exception:
+            sub_queries = [query]
+
+        if len(sub_queries) > 1:
+            # Compound query: fetch context for each sub-query independently, then merge.
+            # Guard 1 — topic overlap: if both sub-queries route to the same URLs it is
+            # a single-topic question phrased in multiple parts, not a true compound query.
+            # Guard 2 — URL cap: never merge more than 5 URLs to prevent context overflow.
+            _MAX_COMPOUND_URLS = 5
+            sq_url_sets = [set(_route_query(sq)) for sq in sub_queries]
+            _all_routed = sq_url_sets[0] | sq_url_sets[1]
+            _overlap = sq_url_sets[0] & sq_url_sets[1]
+            # Also abort if any sub-query has no route — can't meaningfully serve it
+            _any_empty = any(len(s) == 0 for s in sq_url_sets)
+            _is_same_topic = _any_empty or len(_all_routed) == 0 or (len(_overlap) / len(_all_routed)) > 0.5
+
+            if not _is_same_topic:
+                all_content_parts = []
+                all_urls = []
+                for sq_urls in [list(s) for s in sq_url_sets]:
+                    for u in sq_urls:
+                        if u not in all_urls and len(all_urls) < _MAX_COMPOUND_URLS:
+                            all_urls.append(u)
+                    if sq_urls and _prefetch_fn is not None:
+                        content = await _prefetch_fn(sq_urls[:_MAX_COMPOUND_URLS])
+                        if content and len(content) > 200:
+                            all_content_parts.append(content)
+
+            if not _is_same_topic and all_content_parts and all_urls:
+                tool_call_id = f"pre_{uuid.uuid4().hex[:8]}"
+                merged_content = ("\n" + "=" * 72 + "\n").join(all_content_parts)
+                return {
+                    "messages": [
+                        HumanMessage(content=query),
+                        AIMessage(
+                            content="",
+                            tool_calls=[{
+                                "id": tool_call_id,
+                                "name": "fetch_pages_parallel",
+                                "args": {"urls": ",".join(all_urls)},
+                            }],
+                        ),
+                        ToolMessage(content=merged_content, tool_call_id=tool_call_id),
+                    ],
+                    "tool_calls_made": 1,
+                }
+            # Fall through to normal flow if fetching failed
+
         pre_urls = _route_query(query)
 
     # Path A — blog / sitemap / playground queries always bypass RAG (content changes frequently)
@@ -367,6 +429,7 @@ async def run_query(agent, query: str, config: dict) -> str:
     _tool_start_times: dict = {}  # run_id → start time for cache detection
     _turn_buf: list[str] = []     # tokens buffered for the current model invocation
     _turn_has_tool_call = False   # True if the current invocation issued a tool call
+    _turn_in_think = False        # True while inside a <think>...</think> block
 
     initial_input = await _build_initial_input(query)
 
@@ -395,6 +458,7 @@ async def run_query(agent, query: str, config: dict) -> str:
         elif kind == "on_chat_model_start":
             _turn_buf.clear()
             _turn_has_tool_call = False
+            _turn_in_think = False
 
         elif kind == "on_chat_model_stream":
             chunk = event["data"]["chunk"]
@@ -410,6 +474,23 @@ async def run_query(agent, query: str, config: dict) -> str:
                         # Text-format tool call (GLM/Qwen style) — discard buffer
                         _turn_has_tool_call = True
                         _turn_buf.clear()
+                    elif _turn_in_think:
+                        if "</think>" in text:
+                            _turn_in_think = False
+                            after = text[text.index("</think>") + len("</think>"):]
+                            if after.strip():
+                                _turn_buf.append(after)
+                    elif "<think>" in text:
+                        before = text[:text.index("<think>")]
+                        if before.strip():
+                            _turn_buf.append(before)
+                        _turn_in_think = True
+                        rest = text[text.index("<think>"):]
+                        if "</think>" in rest:
+                            _turn_in_think = False
+                            after = rest[rest.index("</think>") + len("</think>"):]
+                            if after.strip():
+                                _turn_buf.append(after)
                     else:
                         _turn_buf.append(text)
 
@@ -419,6 +500,7 @@ async def run_query(agent, query: str, config: dict) -> str:
             if _turn_has_tool_call:
                 _turn_buf.clear()
             _turn_has_tool_call = False
+            _turn_in_think = False
 
         elif kind == "on_chain_end" and event.get("name") == "LangGraph":
             # Keep the final graph output as a fallback in case streaming
