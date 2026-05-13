@@ -19,7 +19,7 @@ An AI-powered documentation agent that searches and synthesizes answers from 0G 
 
 ## Setup
 
-**Requirements:** Python 3.8+
+**Requirements:** Python 3.9+
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-ask-the-docs.git
@@ -124,6 +124,9 @@ curl -X POST http://localhost:8000/chat/stream \
 data: {"token": "0G Storage is..."}
 data: {"model": "your-model", "duration_s": 3.12}
 data: [DONE]
+
+event: error
+data: {"message": "Stream interrupted. Retry via POST /chat with the same query and thread_id."}
 ```
 
 **JavaScript example:**
@@ -146,6 +149,17 @@ while (true) {
     if (token) process.stdout.write(token);
   }
 }
+```
+
+### POST /chat — Cache Invalidation
+
+Send `"recache"` as the query to flush the full documentation cache and vector index. The agent will re-fetch all pages on the next query.
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"query": "recache", "thread_id": "admin"}'
 ```
 
 ### Error Responses
@@ -200,6 +214,8 @@ services:
 volumes:
   agent-data:
 ```
+
+> **Note:** Always run with a single worker. Conversation history is stored in-process and is not shared across workers.
 
 ---
 
