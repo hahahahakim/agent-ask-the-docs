@@ -157,6 +157,10 @@ announcements) that are not answered by the developer docs:
 
 ## Response Format
 
+Begin your response immediately with the answer. Do not open with process narration
+("Now I have...", "Let me synthesize...", "Based on my research...", "I can now answer...").
+The first word of your response must be substantive content.
+
 Every response must include:
 
 1. Direct answer to the query.

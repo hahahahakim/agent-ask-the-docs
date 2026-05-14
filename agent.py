@@ -193,6 +193,12 @@ def build_agent(verbose: bool = False):
         temperature=0,
         timeout=60,        # fail after 60s instead of hanging indefinitely
         max_retries=1,     # one retry on transient errors (503, 429, network blip)
+        extra_body={
+            "provider": {
+                "sort": "latency",
+                "allow_fallbacks": True,
+            }
+        },
     )
 
     return build_graph(llm, all_tools, system_prompt, get_checkpointer(), debug=verbose)
@@ -307,7 +313,8 @@ async def _build_initial_input(query: str, pre_urls: list | None = None) -> dict
             # a single-topic question phrased in multiple parts, not a true compound query.
             # Guard 2 — URL cap: never merge more than 5 URLs to prevent context overflow.
             _MAX_COMPOUND_URLS = 5
-            sq_url_sets = [set(_route_query(sq)) for sq in sub_queries]
+            _routed = await asyncio.gather(*[asyncio.to_thread(_route_query, sq) for sq in sub_queries])
+            sq_url_sets = [set(urls) for urls in _routed]
             _all_routed = sq_url_sets[0] | sq_url_sets[1]
             _overlap = sq_url_sets[0] & sq_url_sets[1]
             # Also abort if any sub-query has no route — can't meaningfully serve it
@@ -346,10 +353,10 @@ async def _build_initial_input(query: str, pre_urls: list | None = None) -> dict
                 }
             # Fall through to normal flow if fetching failed
 
-        pre_urls = _route_query(query)
+        pre_urls = await asyncio.to_thread(_route_query, query)
 
-    # Path A — blog / sitemap / playground queries always bypass RAG (content changes frequently)
-    is_dynamic = any("0g.ai/blog" in u or "sitemap" in u or "pc.0g.ai/playground" in u for u in pre_urls)
+    # Path A — sitemap / playground queries always bypass RAG (content changes frequently)
+    is_dynamic = any("sitemap" in u or "pc.0g.ai/playground" in u for u in pre_urls)
 
     if not is_dynamic:
         # Path B — try the RAG index first
@@ -567,7 +574,7 @@ async def cli_stream_response(agent, query: str, config: dict) -> None:
     status.start()
 
     # Compute route once — used for both the spinner label and _build_initial_input.
-    pre_urls = _route_query(query)
+    pre_urls = await asyncio.to_thread(_route_query, query)
     if pre_urls:
         labels = list(dict.fromkeys(_url_label(u) for u in pre_urls))
         label_str = " & ".join(labels[:2]) + (" & ..." if len(labels) > 2 else "")

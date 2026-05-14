@@ -105,6 +105,8 @@ TOPICS = [
             "0G blog, announcements, news, 0G Pay, ecosystem updates, "
             "partnership announcements, go to market"
         ),
+        # sitemap.xml is kept as a live-fetch fallback; individual post URLs
+        # discovered from the sitemap are indexed into ChromaDB by warm_cache().
         "urls": [
             "https://0g.ai/sitemap.xml",
         ],
@@ -156,13 +158,24 @@ def route_query(query: str) -> list:
         # Cosine similarity — MiniLM produces normalized vectors, so dot product == cosine sim
         similarities = _topic_embeddings @ query_emb
 
-        # Collect URLs for all topics above the threshold (deduplicated, order-preserving)
+        # Collect URLs for top topics above the threshold (deduplicated, order-preserving)
+        _MAX_TOPICS = 2
+        _MAX_URLS = 4
+
+        # Pair each above-threshold topic with its score, then sort descending
+        matched = [
+            (similarities[i], topic)
+            for i, topic in enumerate(TOPICS)
+            if similarities[i] >= SIMILARITY_THRESHOLD
+        ]
+        matched.sort(key=lambda x: x[0], reverse=True)
+
+        # Take top _MAX_TOPICS, collect URLs, cap at _MAX_URLS
         urls: list = []
-        for i, topic in enumerate(TOPICS):
-            if similarities[i] >= SIMILARITY_THRESHOLD:
-                for u in topic["urls"]:
-                    if u not in urls:
-                        urls.append(u)
+        for _, topic in matched[:_MAX_TOPICS]:
+            for u in topic["urls"]:
+                if u not in urls and len(urls) < _MAX_URLS:
+                    urls.append(u)
 
         return urls
 

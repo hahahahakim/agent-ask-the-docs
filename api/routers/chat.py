@@ -49,10 +49,19 @@ async def chat(
         log_request(logger, request, thread_id=body.thread_id)
         logger.info("Cache invalidation started", extra={"trigger": "api"})
         t0 = time.perf_counter()
+        from core.answer_cache import answer_cache_clear  # noqa: PLC0415
+        ac_msg = answer_cache_clear()
         message = await invalidate_cache()
+        message = f"{ac_msg} {message}"
         duration = time.perf_counter() - t0
         logger.info("Cache invalidation complete", extra={"trigger": "api", "duration": f"{duration:.2f}s"})
         return ChatResponse(answer=message, thread_id=body.thread_id, model=settings.model_name, duration_s=round(duration, 2))
+
+    from core.answer_cache import answer_cache_get, answer_cache_set  # noqa: PLC0415
+    cached = answer_cache_get(body.query)
+    if cached:
+        log_completed(logger, body.thread_id, 0.0)
+        return ChatResponse(answer=cached, thread_id=body.thread_id, model=settings.model_name, duration_s=0.0)
 
     agent = request.app.state.agent
     tracker = request.app.state.thread_tracker
@@ -64,6 +73,9 @@ async def chat(
     answer = await run_query(agent, body.query, _build_config(body.thread_id))
     if not answer:
         answer = "I was unable to find an answer. Please try rephrasing your question."
+
+    if answer:
+        answer_cache_set(body.query, answer)
 
     duration = time.perf_counter() - t0
     tracker.touch(body.thread_id)

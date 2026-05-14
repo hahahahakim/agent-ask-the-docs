@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
     with contextlib.redirect_stderr(io.StringIO()):
         from agent import build_agent, warm_cache  # noqa: PLC0415
         from core.persistence import get_thread_tracker
+        from core.router import route_query  # noqa: PLC0415
 
     logging.getLogger("api").info("Agent starting", extra={"model": settings.model_name})
     app.state.agent = build_agent(verbose=settings.verbose)
@@ -93,6 +94,9 @@ async def lifespan(app: FastAPI):
     # query hits cache instead of making live HTTP requests.
     asyncio.create_task(warm_cache())
     asyncio.create_task(_periodic_cache_watch())
+    # Pre-warm the semantic router (loads ONNX model + topic embeddings) so the
+    # first real query doesn't pay the ~400ms cold-start cost.
+    asyncio.create_task(asyncio.to_thread(route_query, "warmup"))
     yield
     # MemorySaver and ThreadTracker are in-process; nothing to clean up on shutdown
 

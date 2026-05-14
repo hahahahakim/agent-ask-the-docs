@@ -208,6 +208,13 @@ def build_graph(llm, tools: list, system_prompt: str, checkpointer, debug: bool 
         human_msg = history[first_human_idx]
         # Everything after the HumanMessage, capped at 7 most-recent
         recent = history[first_human_idx + 1:][-7:]
+
+        # Guard: never start the window with a ToolMessage whose AIMessage(tool_calls)
+        # was cut off by the trim. The API rejects messages where a tool role has no
+        # preceding assistant message with tool_calls.
+        while recent and isinstance(recent[0], ToolMessage):
+            recent = recent[1:]
+
         return [human_msg] + recent
 
     async def agent_node(state: AgentState) -> dict:

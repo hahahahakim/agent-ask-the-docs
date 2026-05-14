@@ -71,9 +71,23 @@ _MAX_CHARS = 5_000  # per page, to keep token usage reasonable
 from core.rag import INDEXABLE_URLS  # noqa: E402 (after stdlib/third-party)
 
 _WARM_URLS: list = sorted(INDEXABLE_URLS) + [
-    "https://0g.ai/blog",
     "https://0g.ai/sitemap.xml",
 ]
+
+
+def _extract_sitemap_urls(xml_text: str) -> list:
+    """Parse sitemap XML and return a list of /blog/ URLs.
+
+    Handles both standard sitemap (<urlset>) and sitemap index (<sitemapindex>)
+    formats.  Falls back to html.parser if the lxml-xml parser is unavailable.
+    """
+    try:
+        soup = BeautifulSoup(xml_text, "lxml-xml")
+    except Exception:
+        soup = BeautifulSoup(xml_text, "html.parser")
+
+    locs = [tag.get_text(strip=True) for tag in soup.find_all("loc")]
+    return [url for url in locs if "/blog/" in url]
 
 
 async def warm_cache() -> None:
@@ -112,6 +126,24 @@ async def warm_cache() -> None:
             return_exceptions=True,
         )
 
+        # Discover individual blog post URLs from the sitemap result
+        _SITEMAP_URL = "https://0g.ai/sitemap.xml"
+        _blog_post_urls: list = []
+        for _r in results:
+            if isinstance(_r, Exception):
+                continue
+            _url, _content = _r
+            if _url == _SITEMAP_URL and _content and not _content.startswith(("### Fetch failed", "### Blocked")):
+                _blog_post_urls = _extract_sitemap_urls(_content)[:50]
+                break
+
+        if _blog_post_urls:
+            blog_results = await asyncio.gather(
+                *[_fetch_live(client, url) for url in _blog_post_urls],
+                return_exceptions=True,
+            )
+            results = list(results) + list(blog_results)
+
     changed: list = []
     unchanged: list = []
     content_map: dict = {}
@@ -140,6 +172,15 @@ async def warm_cache() -> None:
             await asyncio.to_thread(index_urls, changed, content_map)
         except Exception as e:
             logging.getLogger("api").error("warm_cache: RAG indexing failed", extra={"error": str(e)})
+
+        # Docs changed — invalidate cached answers so stale responses aren't served.
+        # We can't know which answers referenced which pages, so clear the whole table.
+        try:
+            from core.answer_cache import answer_cache_clear  # noqa: PLC0415
+            await asyncio.to_thread(answer_cache_clear)
+            logging.getLogger("api").info("warm_cache: answer cache cleared due to doc changes", extra={"changed": len(changed)})
+        except Exception as e:
+            logging.getLogger("api").warning("warm_cache: answer cache clear failed", extra={"error": str(e)})
 
     logging.getLogger("api").info(
         "warm_cache complete",

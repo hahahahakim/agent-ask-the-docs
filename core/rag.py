@@ -110,8 +110,8 @@ def index_urls(urls: list, content_map: dict) -> None:
     )
 
     for url in urls:
-        # Skip blog and sitemap content — never indexed.
-        if "0g.ai/blog" in url or "sitemap" in url:
+        # Skip sitemap content — never indexed.
+        if "sitemap" in url:
             continue
 
         try:
@@ -170,13 +170,14 @@ async def query_index(query: str, n_results: int = 6) -> tuple:
     """
     col = get_collection()
 
-    if col.count() == 0:
+    count = await asyncio.to_thread(col.count)
+    if count == 0:
         return ("", 1.0)
 
     results = await asyncio.to_thread(
         col.query,
         query_texts=[query],
-        n_results=min(n_results, col.count()),
+        n_results=min(n_results, count),
         include=["documents", "metadatas", "distances"],
     )
 
