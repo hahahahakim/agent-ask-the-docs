@@ -28,6 +28,7 @@ TOPICS = [
             "https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk",
             "https://docs.0g.ai/developer-hub/building-on-0g/storage/storage-cli",
             "https://docs.0g.ai/developer-hub/network-info",
+            "https://build.0g.ai/storage",
         ],
     },
     {
@@ -62,6 +63,7 @@ TOPICS = [
         "urls": [
             "https://docs.0g.ai/ai-context",
             "https://docs.0g.ai/",
+            "https://build.0g.ai/",
         ],
     },
     {

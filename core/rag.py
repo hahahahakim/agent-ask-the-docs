@@ -30,23 +30,33 @@ DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 
 DISTANCE_THRESHOLD = 0.65
 
-# Canonical set of URLs that are indexed into ChromaDB.
-# script.py derives _WARM_URLS from this — add new stable doc pages here only.
-INDEXABLE_URLS: frozenset = frozenset({
-    "https://docs.0g.ai/",
-    "https://build.0g.ai/",
-    "https://pc.0g.ai/",
-    "https://app.0g.ai/",
-    "https://docs.0g.ai/developer-hub/building-on-0g/storage/storage-cli",
-    "https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk",
-    "https://docs.0g.ai/developer-hub/building-on-0g/compute-network/inference",
-    "https://docs.0g.ai/developer-hub/building-on-0g/da",
-    "https://docs.0g.ai/developer-hub/network-info",
-    "https://build.0g.ai/chain",
-    "https://build.0g.ai/storage",
-    "https://build.0g.ai/compute",
-    "https://docs.0g.ai/ai-context",
+# URLs present in router TOPICS that must NOT be indexed into ChromaDB.
+# These are either dynamic/JS-rendered pages or discovery-only URLs.
+_UNINDEXABLE_URLS: frozenset = frozenset({
+    "https://pc.0g.ai/playground",  # dynamic JS playground — no static content
+    "https://0g.ai/sitemap.xml",    # discovery URL; individual blog posts are indexed separately
 })
+
+
+def _derive_indexable_urls() -> frozenset:
+    """Build INDEXABLE_URLS from router TOPICS, excluding non-indexable entries.
+
+    This keeps INDEXABLE_URLS and TOPICS in sync automatically — adding a URL
+    to a topic is sufficient; no second edit to rag.py is required.
+    """
+    from core.router import TOPICS  # local import avoids circular dependency at module level
+    urls: set = set()
+    for topic in TOPICS:
+        for url in topic["urls"]:
+            if url not in _UNINDEXABLE_URLS:
+                urls.add(url)
+    return frozenset(urls)
+
+
+# Canonical set of URLs indexed into ChromaDB.
+# Derived from core/router.py TOPICS — edit TOPICS to add or remove URLs.
+# script.py derives _WARM_URLS from this.
+INDEXABLE_URLS: frozenset = _derive_indexable_urls()
 
 # ---------------------------------------------------------------------------
 # Module-level singletons

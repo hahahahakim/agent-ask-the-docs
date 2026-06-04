@@ -150,9 +150,16 @@ async def warm_cache() -> None:
 
     for result in results:
         if isinstance(result, Exception):
+            logging.getLogger("api").warning(
+                "warm_cache: fetch exception", extra={"error": str(result)}
+            )
             continue
         url, content = result
         if not content or content.startswith(("### Fetch failed", "### Blocked")):
+            logging.getLogger("api").warning(
+                "warm_cache: fetch failed",
+                extra={"url": url, "reason": (content or "empty response")[:120]},
+            )
             continue
 
         fresh_hash = hashlib.md5(content.encode("utf-8", errors="replace")).hexdigest()
@@ -181,6 +188,26 @@ async def warm_cache() -> None:
             logging.getLogger("api").info("warm_cache: answer cache cleared due to doc changes", extra={"changed": len(changed)})
         except Exception as e:
             logging.getLogger("api").warning("warm_cache: answer cache clear failed", extra={"error": str(e)})
+
+    # Coverage check: warn if any INDEXABLE_URL has no chunks in the RAG index.
+    # Catches URLs that were never successfully fetched/indexed (e.g. 404 pages).
+    try:
+        from core.rag import INDEXABLE_URLS as _INDEXABLE, get_collection  # noqa: PLC0415
+
+        def _find_coverage_gaps() -> list:
+            col = get_collection()
+            return [u for u in _INDEXABLE if not col.get(where={"url": u}).get("ids")]
+
+        gaps = await asyncio.to_thread(_find_coverage_gaps)
+        for gap_url in gaps:
+            logging.getLogger("api").warning(
+                "warm_cache: RAG coverage gap — URL has no indexed chunks",
+                extra={"url": gap_url},
+            )
+    except Exception as e:
+        logging.getLogger("api").warning(
+            "warm_cache: coverage check failed", extra={"error": str(e)}
+        )
 
     logging.getLogger("api").info(
         "warm_cache complete",
