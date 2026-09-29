@@ -94,8 +94,9 @@ async def lifespan(app: FastAPI):
     # query hits cache instead of making live HTTP requests.
     asyncio.create_task(warm_cache())
     asyncio.create_task(_periodic_cache_watch())
-    # Pre-warm the semantic router (loads ONNX model + topic embeddings) so the
-    # first real query doesn't pay the ~400ms cold-start cost.
+    # Pre-warm the semantic router (embeds topic descriptions via the 0G PC
+    # router) so the first real query doesn't pay that cost. route_query()
+    # swallows errors, so an unreachable endpoint never blocks startup.
     asyncio.create_task(asyncio.to_thread(route_query, "warmup"))
     yield
     # MemorySaver and ThreadTracker are in-process; nothing to clean up on shutdown

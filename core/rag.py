@@ -7,7 +7,8 @@ Owns the ChromaDB vector index lifecycle:
   - Querying (async semantic search with formatted context)
   - Chunk invalidation (drop_url_chunks for recache flows)
 
-Embedding: ChromaDB's built-in ONNXMiniLM_L6_V2 (384-dim cosine, fully in-process).
+Embedding: 0G PC router /embeddings (EMBEDDING_MODEL, default qwen3.7-text-embedding),
+via core/embeddings.py. The collection name is scoped to the model.
 """
 
 from __future__ import annotations
@@ -19,8 +20,9 @@ import time
 from pathlib import Path
 
 import chromadb
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from core.embeddings import collection_name, get_embedding_function
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -28,7 +30,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
 
-DISTANCE_THRESHOLD = 0.65
+# Cosine distance cut-off for using RAG context, tuned on the golden queries for
+# qwen3.7-text-embedding: on-topic best-chunk distance <= 0.40, unrelated queries >= 0.59.
+# Re-tune when changing EMBEDDING_MODEL.
+DISTANCE_THRESHOLD = 0.43
 
 # URLs present in router TOPICS that must NOT be indexed into ChromaDB.
 # These are either dynamic/JS-rendered pages or discovery-only URLs.
@@ -67,15 +72,6 @@ _collection: chromadb.Collection | None = None
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _get_embedding_function() -> ONNXMiniLM_L6_V2:
-    """Return a ChromaDB ONNXMiniLM_L6_V2 embedding function instance."""
-    return ONNXMiniLM_L6_V2()
-
-
-# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -93,9 +89,9 @@ def get_collection() -> chromadb.Collection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     _client = chromadb.PersistentClient(path=str(DATA_DIR / "chroma"))
     _collection = _client.get_or_create_collection(
-        name="0g_docs",
+        name=collection_name(),
         metadata={"hnsw:space": "cosine"},
-        embedding_function=_get_embedding_function(),
+        embedding_function=get_embedding_function(),
     )
     return _collection
 
@@ -235,11 +231,11 @@ def clear_index() -> str:
     if _client is None:
         get_collection()  # ensure initialised
     if _client is not None:
-        _client.delete_collection("0g_docs")
+        _client.delete_collection(collection_name())
         _collection = _client.get_or_create_collection(
-            name="0g_docs",
+            name=collection_name(),
             metadata={"hnsw:space": "cosine"},
-            embedding_function=_get_embedding_function(),
+            embedding_function=get_embedding_function(),
         )
         return "RAG index cleared."
     return "RAG index not initialised — nothing to clear."

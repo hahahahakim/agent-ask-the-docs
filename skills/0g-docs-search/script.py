@@ -148,6 +148,21 @@ async def warm_cache() -> None:
     unchanged: list = []
     content_map: dict = {}
 
+    # URLs that already have chunks in the RAG index. A page whose content is
+    # unchanged but has no chunks (e.g. a fresh collection after switching
+    # EMBEDDING_MODEL) must still be indexed.
+    try:
+        from core.rag import get_collection  # noqa: PLC0415
+
+        def _indexed_urls() -> set:
+            metas = get_collection().get(include=["metadatas"]).get("metadatas") or []
+            return {m.get("url") for m in metas if m}
+
+        indexed = await asyncio.to_thread(_indexed_urls)
+    except Exception as e:
+        logging.getLogger("api").warning("warm_cache: could not read RAG index", extra={"error": str(e)})
+        indexed = None
+
     for result in results:
         if isinstance(result, Exception):
             logging.getLogger("api").warning(
@@ -167,6 +182,9 @@ async def warm_cache() -> None:
 
         if stored_hash is not None and stored_hash == fresh_hash:
             unchanged.append(url)
+            if indexed is not None and url not in indexed and "sitemap" not in url:
+                changed.append(url)
+                content_map[url] = content
         else:
             # New or changed — update cache and mark for re-indexing
             await asyncio.to_thread(_cache_set, url, content)

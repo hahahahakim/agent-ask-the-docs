@@ -1,16 +1,19 @@
 """Semantic router — matches queries to documentation topics via embedding similarity.
 
 Replaces the keyword-based _route_query() with embedding cosine similarity
-against natural-language topic descriptions, using the same ONNXMiniLM_L6_V2
-model already used for RAG indexing.
+against natural-language topic descriptions, using the same 0G PC embedding
+model (core/embeddings.py) already used for RAG indexing.
 
 Topic embeddings are lazily computed and cached in-process on first call.
 """
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
-from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+
+from core.embeddings import get_embedding_function
 
 # ---------------------------------------------------------------------------
 # Topic registry
@@ -120,13 +123,14 @@ TOPICS = [
 # Similarity threshold
 # ---------------------------------------------------------------------------
 
-SIMILARITY_THRESHOLD = 0.30
+# Tuned on the golden queries for qwen3.7-text-embedding: on-topic best-topic
+# similarity >= 0.68, off-topic <= 0.57. Re-tune when changing EMBEDDING_MODEL.
+SIMILARITY_THRESHOLD = 0.62
 
 # ---------------------------------------------------------------------------
-# Embedding singleton
+# Topic embedding cache
 # ---------------------------------------------------------------------------
 
-_embed_fn = None
 _topic_embeddings = None  # list of numpy arrays, lazily computed
 
 
@@ -143,22 +147,20 @@ def route_query(query: str) -> list:
 
     Returns an empty list if no topic exceeds the threshold.
     """
-    global _embed_fn, _topic_embeddings
+    global _topic_embeddings
 
     try:
-        # Lazy-init embedding function singleton
-        if _embed_fn is None:
-            _embed_fn = ONNXMiniLM_L6_V2()
+        embed_fn = get_embedding_function()
 
         # Lazy-compute topic description embeddings
         if _topic_embeddings is None:
             descriptions = [t["description"] for t in TOPICS]
-            _topic_embeddings = np.array(_embed_fn(descriptions))
+            _topic_embeddings = np.array(embed_fn(descriptions))
 
         # Embed the query
-        query_emb = np.array(_embed_fn([query])[0])
+        query_emb = np.array(embed_fn.embed_query([query])[0])
 
-        # Cosine similarity — MiniLM produces normalized vectors, so dot product == cosine sim
+        # Cosine similarity — OGEmbeddingFunction L2-normalises, so dot product == cosine sim
         similarities = _topic_embeddings @ query_emb
 
         # Collect URLs for top topics above the threshold (deduplicated, order-preserving)
@@ -182,5 +184,6 @@ def route_query(query: str) -> list:
 
         return urls
 
-    except Exception:
+    except Exception as e:
+        logging.getLogger("api").warning("route_query: embedding failed", extra={"error": str(e)})
         return []

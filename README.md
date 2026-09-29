@@ -234,9 +234,21 @@ python3 -m pytest tests/ -v
 | `OPENAI_API_KEY` | — | LLM API key (required) |
 | `OPENAI_BASE_URL` | OpenAI | OpenAI-compatible endpoint URL |
 | `MODEL_NAME` | `gpt-4o` | Model name |
+| `EMBEDDING_MODEL` | `qwen3.7-text-embedding` | Embedding model served at `OPENAI_BASE_URL/embeddings` (used for RAG and topic routing). Changing it creates a new vector collection that is re-indexed on the next startup. |
 | `API_KEYS` | — | Comma-separated API keys (required for server) |
 | `CORS_ALLOWED_ORIGINS` | — | Comma-separated allowed origins (required for server) |
 | `RATE_LIMIT_PER_MINUTE` | `20` | Requests per minute per API key |
 | `THREAD_TTL_HOURS` | `24` | Hours before inactive threads are wiped |
 | `DATA_DIR` | `./data` | Directory for SQLite caches |
 | `VERBOSE` | `false` | Show LangGraph debug traces |
+
+### Migrating from the local MiniLM embedding model
+
+Embeddings now come from the 0G PC router instead of a local ONNX model. On machines that ran the old version:
+
+```bash
+rm -rf ~/.cache/chroma/onnx_models   # cached MiniLM model, no longer used
+# The old 384-dim "0g_docs" collection is orphaned; drop it (or rm -rf data/chroma)
+python3 -c "import chromadb; chromadb.PersistentClient('data/chroma').delete_collection('0g_docs')"
+docker compose build --no-cache      # rebuild without the pre-baked model layer
+```

@@ -2,10 +2,10 @@
 Golden test suite for 0G Labs documentation agent.
 
 Two test classes:
-  1. TestRouting      — pure unit tests on _route_query(); no API key needed
+  1. TestRouting      — routing tests on _route_query(); calls the embedding API (requires OPENAI_API_KEY)
   2. TestAnswerQuality — end-to-end answer quality tests (requires OPENAI_API_KEY)
 
-Run routing-only (fast CI):
+Run routing-only:
     python3 -m pytest tests/test_answers.py::TestRouting -v
 
 Run everything (requires .env with OPENAI_API_KEY):
@@ -55,9 +55,10 @@ integration = pytest.mark.skipif(SKIP_INTEGRATION, reason="OPENAI_API_KEY not se
 
 
 # ---------------------------------------------------------------------------
-# Class 1: TestRouting — pure unit tests, no API key required
+# Class 1: TestRouting — needs the embedding API (0G PC router)
 # ---------------------------------------------------------------------------
 
+@integration
 class TestRouting:
     """Verify _route_query() returns URLs matching expected patterns."""
 
