@@ -59,7 +59,7 @@ _ROUTE_MAP: list = [
         [
             "https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk",
             "https://docs.0g.ai/developer-hub/building-on-0g/storage/storage-cli",
-            "https://docs.0g.ai/developer-hub/network-info",
+            "https://docs.0g.ai/developer-hub/mainnet/mainnet-overview",
         ],
     ),
     # Data Availability
@@ -104,7 +104,8 @@ _ROUTE_MAP: list = [
     (
         ["rpc endpoint", "network info", "chain id", "contract address", "rpc url", "network endpoint"],
         [
-            "https://docs.0g.ai/developer-hub/network-info",
+            "https://docs.0g.ai/developer-hub/mainnet/mainnet-overview",
+            "https://docs.0g.ai/developer-hub/testnet/testnet-overview",
         ],
     ),
     # Chain / staking / validators / EVM development

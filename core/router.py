@@ -27,7 +27,7 @@ TOPICS = [
         "urls": [
             "https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk",
             "https://docs.0g.ai/developer-hub/building-on-0g/storage/storage-cli",
-            "https://docs.0g.ai/developer-hub/network-info",
+            "https://docs.0g.ai/developer-hub/mainnet/mainnet-overview",
             "https://build.0g.ai/storage",
         ],
     },
@@ -84,7 +84,8 @@ TOPICS = [
             "network configuration, RPC endpoint, testnet mainnet endpoints"
         ),
         "urls": [
-            "https://docs.0g.ai/developer-hub/network-info",
+            "https://docs.0g.ai/developer-hub/mainnet/mainnet-overview",
+            "https://docs.0g.ai/developer-hub/testnet/testnet-overview",
         ],
     },
     {

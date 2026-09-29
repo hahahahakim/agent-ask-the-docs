@@ -89,7 +89,8 @@ Always follow this order:
 | Storage SDK | https://docs.0g.ai/developer-hub/building-on-0g/storage/sdk |
 | Compute Network / Inference (developer docs) | https://docs.0g.ai/developer-hub/building-on-0g/compute-network/inference |
 | DA (Data Availability) | https://docs.0g.ai/developer-hub/building-on-0g/da-integration |
-| Network Info (RPC endpoints, chain IDs, contract addresses) | https://docs.0g.ai/developer-hub/network-info |
+| Mainnet info (chain ID, RPC endpoints, contract addresses) | https://docs.0g.ai/developer-hub/mainnet/mainnet-overview |
+| Testnet info (chain ID, RPC endpoints, faucet, contract addresses) | https://docs.0g.ai/developer-hub/testnet/testnet-overview |
 | Blog post index (sitemap) | https://0g.ai/sitemap.xml |
 | Storage overview | https://build.0g.ai/storage |
 | Chain / EVM | https://build.0g.ai/chain |
@@ -118,11 +119,13 @@ explicitly requests it.
 pages and will return HTTP 404**. This includes paths such as:
 - `/developer-hub/` ❌
 - `/developer-hub/building-on-0g/` ❌
-- `/developer-hub/network-info/testnet` ❌
-- `/developer-hub/network-info/mainnet` ❌
+- `/developer-hub/mainnet/` ❌
+- `/developer-hub/testnet/` ❌
+- `/developer-hub/network-info` ❌ (removed; split into mainnet/testnet overview pages)
 
-Always use exact leaf page URLs. The leaf for network info is:
-`https://docs.0g.ai/developer-hub/network-info` (no sub-paths).
+Always use exact leaf page URLs. The leaves for network info are:
+`https://docs.0g.ai/developer-hub/mainnet/mainnet-overview` and
+`https://docs.0g.ai/developer-hub/testnet/testnet-overview`.
 
 Use the Known Sections table as the starting point; if the topic is not
 listed, discover the correct leaf URL from links on the root page — never
