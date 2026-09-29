@@ -7,10 +7,9 @@ WORKDIR /app
 
 # Install dependencies first so Docker can cache this layer
 COPY requirements.txt .
-# Install dependencies and pre-bake the ONNX embedding model so the
-# container never downloads it at runtime (offline-safe after build).
-RUN pip install --no-cache-dir -r requirements.txt && \
-    python -c "from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2; ONNXMiniLM_L6_V2()(['warmup'])"
+# Embeddings are computed remotely by the 0G PC router (EMBEDDING_MODEL), so
+# no local model is baked into the image.
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code (chown to appuser so it can write data/ at runtime)
 COPY --chown=appuser:appuser . .

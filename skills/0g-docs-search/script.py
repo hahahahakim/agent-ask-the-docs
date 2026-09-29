@@ -9,7 +9,7 @@ OpenAI-compatible endpoints do not reliably serialise array-type tool
 parameters — the model silently omits the field, causing a ValidationError.
 A plain string is universally safe.
 
-Page content is cached in a SQLite database at ./data/page_cache.db with a
+Page content is cached in a SQLite database at $DATA_DIR/page_cache.db with a
 configurable TTL (default 24 hours). Use clear_page_cache() to invalidate.
 """
 
@@ -144,9 +144,25 @@ async def warm_cache() -> None:
             )
             results = list(results) + list(blog_results)
 
-    changed: list = []
+    changed: list = []       # URLs to (re-)index
+    hash_changed: list = []  # subset whose content actually changed
     unchanged: list = []
     content_map: dict = {}
+
+    # URLs that already have chunks in the RAG index. A page whose content is
+    # unchanged but has no chunks (e.g. a fresh collection after switching
+    # EMBEDDING_MODEL) must still be indexed.
+    try:
+        from core.rag import get_collection  # noqa: PLC0415
+
+        def _indexed_urls() -> set:
+            metas = get_collection().get(include=["metadatas"]).get("metadatas") or []
+            return {m.get("url") for m in metas if m}
+
+        indexed = await asyncio.to_thread(_indexed_urls)
+    except Exception as e:
+        logging.getLogger("api").warning("warm_cache: could not read RAG index", extra={"error": str(e)})
+        indexed = None
 
     for result in results:
         if isinstance(result, Exception):
@@ -167,10 +183,14 @@ async def warm_cache() -> None:
 
         if stored_hash is not None and stored_hash == fresh_hash:
             unchanged.append(url)
+            if indexed is not None and url not in indexed and "sitemap" not in url:
+                changed.append(url)
+                content_map[url] = content
         else:
             # New or changed — update cache and mark for re-indexing
             await asyncio.to_thread(_cache_set, url, content)
             changed.append(url)
+            hash_changed.append(url)
             content_map[url] = content
 
     if content_map:
@@ -180,12 +200,16 @@ async def warm_cache() -> None:
         except Exception as e:
             logging.getLogger("api").error("warm_cache: RAG indexing failed", extra={"error": str(e)})
 
+    # Only clear on real content changes — a page that is re-indexed only
+    # because it has no chunks (e.g. empty body) must not wipe the cache on
+    # every startup.
+    if hash_changed:
         # Docs changed — invalidate cached answers so stale responses aren't served.
         # We can't know which answers referenced which pages, so clear the whole table.
         try:
             from core.answer_cache import answer_cache_clear  # noqa: PLC0415
             await asyncio.to_thread(answer_cache_clear)
-            logging.getLogger("api").info("warm_cache: answer cache cleared due to doc changes", extra={"changed": len(changed)})
+            logging.getLogger("api").info("warm_cache: answer cache cleared due to doc changes", extra={"changed": len(hash_changed)})
         except Exception as e:
             logging.getLogger("api").warning("warm_cache: answer cache clear failed", extra={"error": str(e)})
 
@@ -211,7 +235,7 @@ async def warm_cache() -> None:
 
     logging.getLogger("api").info(
         "warm_cache complete",
-        extra={"unchanged": len(unchanged), "updated": len(changed)},
+        extra={"unchanged": len(unchanged), "updated": len(hash_changed), "indexed": len(changed)},
     )
 
 # ---------------------------------------------------------------------------
@@ -219,12 +243,13 @@ async def warm_cache() -> None:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL_SECONDS = 60 * 60 * 24  # 24 hours
-_CACHE_DB_PATH = "./data/page_cache.db"
+# Same file as core/answer_cache.py — both must honour DATA_DIR.
+_CACHE_DB_PATH = os.path.join(os.getenv("DATA_DIR", "./data"), "page_cache.db")
 _cache_initialised = False
 
 
 def _init_cache() -> None:
-    """Create ./data/ directory and the page_cache table if they don't exist.
+    """Create the DATA_DIR directory and the page_cache table if they don't exist.
 
     Idempotent — safe to call multiple times.
     """

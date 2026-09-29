@@ -28,3 +28,6 @@ data/
 api-docs.html
 API-Specs.md
 ARCHITECTURE.md
+
+# Node
+node_modules/
