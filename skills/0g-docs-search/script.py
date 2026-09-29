@@ -144,7 +144,8 @@ async def warm_cache() -> None:
             )
             results = list(results) + list(blog_results)
 
-    changed: list = []
+    changed: list = []       # URLs to (re-)index
+    hash_changed: list = []  # subset whose content actually changed
     unchanged: list = []
     content_map: dict = {}
 
@@ -189,6 +190,7 @@ async def warm_cache() -> None:
             # New or changed — update cache and mark for re-indexing
             await asyncio.to_thread(_cache_set, url, content)
             changed.append(url)
+            hash_changed.append(url)
             content_map[url] = content
 
     if content_map:
@@ -198,12 +200,16 @@ async def warm_cache() -> None:
         except Exception as e:
             logging.getLogger("api").error("warm_cache: RAG indexing failed", extra={"error": str(e)})
 
+    # Only clear on real content changes — a page that is re-indexed only
+    # because it has no chunks (e.g. empty body) must not wipe the cache on
+    # every startup.
+    if hash_changed:
         # Docs changed — invalidate cached answers so stale responses aren't served.
         # We can't know which answers referenced which pages, so clear the whole table.
         try:
             from core.answer_cache import answer_cache_clear  # noqa: PLC0415
             await asyncio.to_thread(answer_cache_clear)
-            logging.getLogger("api").info("warm_cache: answer cache cleared due to doc changes", extra={"changed": len(changed)})
+            logging.getLogger("api").info("warm_cache: answer cache cleared due to doc changes", extra={"changed": len(hash_changed)})
         except Exception as e:
             logging.getLogger("api").warning("warm_cache: answer cache clear failed", extra={"error": str(e)})
 
@@ -229,7 +235,7 @@ async def warm_cache() -> None:
 
     logging.getLogger("api").info(
         "warm_cache complete",
-        extra={"unchanged": len(unchanged), "updated": len(changed)},
+        extra={"unchanged": len(unchanged), "updated": len(hash_changed), "indexed": len(changed)},
     )
 
 # ---------------------------------------------------------------------------
