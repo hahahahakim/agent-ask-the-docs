@@ -9,7 +9,7 @@ OpenAI-compatible endpoints do not reliably serialise array-type tool
 parameters — the model silently omits the field, causing a ValidationError.
 A plain string is universally safe.
 
-Page content is cached in a SQLite database at ./data/page_cache.db with a
+Page content is cached in a SQLite database at $DATA_DIR/page_cache.db with a
 configurable TTL (default 24 hours). Use clear_page_cache() to invalidate.
 """
 
@@ -243,12 +243,13 @@ async def warm_cache() -> None:
 # ---------------------------------------------------------------------------
 
 _CACHE_TTL_SECONDS = 60 * 60 * 24  # 24 hours
-_CACHE_DB_PATH = "./data/page_cache.db"
+# Same file as core/answer_cache.py — both must honour DATA_DIR.
+_CACHE_DB_PATH = os.path.join(os.getenv("DATA_DIR", "./data"), "page_cache.db")
 _cache_initialised = False
 
 
 def _init_cache() -> None:
-    """Create ./data/ directory and the page_cache table if they don't exist.
+    """Create the DATA_DIR directory and the page_cache table if they don't exist.
 
     Idempotent — safe to call multiple times.
     """
